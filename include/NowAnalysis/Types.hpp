@@ -68,16 +68,46 @@ inline AnalysisResultEntry analysis_result_entry_from_json(const boost::json::va
 }
 
 struct AnalysisResponse {
-    std::string status;
+    std::string status;                  // "ok" | "partial" | "error"
     std::vector<AnalysisResultEntry> results;
+
+    // Set only when the daemon replied with an error envelope rather than a
+    // results payload. `error` is the daemon's code (invalid_json,
+    // invalid_request, internal_error, not_found); `message` is its detail.
+    std::optional<std::string> error;
+    std::optional<std::string> message;
 };
 
+// The daemon has TWO response shapes, and the HTTP status does not tell them
+// apart. A results payload is {"status", "results"}; an error envelope is
+// {"error", "message"} with no status and no results. Both can arrive as 500 --
+// the daemon returns 500 with a results payload when status == "error"
+// (create_now_analysis.py: `code = 500 if result["status"] == "error"`), and 500
+// with an error envelope from its exception handlers.
+//
+// This used to call obj.at("status") unconditionally, so every error envelope
+// threw boost::json "out of range" and destroyed the diagnosis on its way past.
+// Discriminate on the body's keys, never on the status code.
 inline AnalysisResponse analysis_response_from_json(const boost::json::value& jv) {
     AnalysisResponse p;
     const auto& obj = jv.as_object();
+
+    if (!obj.contains("status")) {
+        p.status = "error";
+        if (obj.contains("error") && obj.at("error").is_string())
+            p.error = std::string(obj.at("error").as_string());
+        if (obj.contains("message") && obj.at("message").is_string())
+            p.message = std::string(obj.at("message").as_string());
+        return p;
+    }
+
     p.status = obj.at("status").as_string();
-    for (const auto& entry : obj.at("results").as_array())
-        p.results.push_back(analysis_result_entry_from_json(entry));
+
+    // Absent on non-analysis replies such as {"status": "shutting_down"}.
+    if (obj.contains("results") && obj.at("results").is_array())
+        for (const auto& entry : obj.at("results").as_array())
+            p.results.push_back(analysis_result_entry_from_json(entry));
+
     return p;
 }
 

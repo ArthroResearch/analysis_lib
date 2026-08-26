@@ -45,7 +45,10 @@ public:
 			}
 			else
 			{
-				throw std::runtime_error( "Unexpected HTTP status: " + std::to_string( res->status ) );
+				// Carry the body: a 404 arrives as {"error","path"}, and without it
+				// the caller is left with a bare status code to guess from.
+				throw std::runtime_error( "Unexpected HTTP status: " + std::to_string( res->status )
+				                          + " body: " + res->body );
 			}
 		}
 		else
