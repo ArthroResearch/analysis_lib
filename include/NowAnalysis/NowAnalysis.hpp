@@ -27,10 +27,17 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
         
-        if (!client_.IsHealthy()) {
+        auto health = client_.Health();
+        if (!health || health->status != "ok") {
             throw std::runtime_error("Daemon failed to respond to health check");
         }
+        health_ = std::move(*health);
     }
+
+    // The daemon's /health reply from start-up: its pid and, from contract
+    // 2.0.0, the api_version it speaks. Worth logging, since people run their
+    // own modified daemons.
+    const HealthResponse& GetHealth() const { return health_; }
 
     AnalysisResponse Analyze(const AnalysisRequest& request) {
         return client_.Analyze(request);
@@ -47,6 +54,7 @@ public:
 private:
     DaemonManager daemon_;
     Client client_;
+    HealthResponse health_;
 };
 
 } // namespace now_analysis

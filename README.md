@@ -37,6 +37,7 @@ High-level class combining `DaemonManager` and `Client`.
 - **`Shutdown()`**: Stops the daemon.
 - **`GetClient()`**: Access the underlying client.
 - **`GetDaemonManager()`**: Access the underlying daemon manager.
+- **`GetHealth()`**: The daemon's `/health` reply from start-up: its `pid` and, from contract 2.0.0, its `api_version`.
 
 ### `now_analysis::DaemonManager`
 
@@ -50,6 +51,7 @@ Handles the Win32 process lifecycle.
 
 Handles HTTP communication.
 
+- **`Health()`**: Returns the parsed `/health` reply, or `std::nullopt` if the daemon did not answer. Never throws.
 - **`IsHealthy()`**: Returns `true` if the daemon is reachable and OK.
 - **`Analyze(AnalysisRequest)`**: Returns `AnalysisResponse`.
 - **`Shutdown()`**: Sends a shutdown request to the daemon.

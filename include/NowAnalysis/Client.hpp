@@ -2,6 +2,7 @@
 #include "Types.hpp"
 #include <httplib.h>
 #include <boost/json.hpp>
+#include <optional>
 #include <string>
 #include <stdexcept>
 
@@ -20,17 +21,31 @@ public:
 	}
 
 
-	bool IsHealthy()
+	// The parsed /health reply, or nullopt if the daemon did not answer 200 with
+	// a body that parses. Never throws: it is polled while the daemon starts.
+	std::optional< HealthResponse > Health()
 	{
 		if ( auto res = cli_.Get( "/health" ) )
 		{
 			if ( res->status == 200 )
 			{
-				auto j = boost::json::parse( res->body );
-				return j.as_object()[ "status" ] == "ok";
+				try
+				{
+					return health_response_from_json( boost::json::parse( res->body ) );
+				}
+				catch ( const std::exception & )
+				{
+				}
 			}
 		}
-		return false;
+		return std::nullopt;
+	}
+
+
+	bool IsHealthy()
+	{
+		const auto health = Health();
+		return health && health->status == "ok";
 	}
 
 
@@ -45,8 +60,8 @@ public:
 			}
 			else
 			{
-				// Carry the body: a 404 arrives as {"error","path"}, and without it
-				// the caller is left with a bare status code to guess from.
+				// Carry the body: a 404 arrives as an error envelope naming the
+				// path, and without it the caller is left with a bare status code.
 				throw std::runtime_error( "Unexpected HTTP status: " + std::to_string( res->status )
 				                          + " body: " + res->body );
 			}

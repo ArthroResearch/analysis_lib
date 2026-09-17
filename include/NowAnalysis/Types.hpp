@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <cstdint>
 #include <optional>
 #include <boost/json.hpp>
 
@@ -30,16 +31,20 @@ inline boost::json::value to_json(const AnalysisRequest& p) {
     return obj;
 }
 
+// to_number, not as_double: JSON has one number type, but Boost.JSON stores
+// 203 as an integer and as_double() throws on it. open_viewer defaults to true
+// when absent, as the daemon's does.
 inline AnalysisRequest analysis_request_from_json(const boost::json::value& jv) {
     AnalysisRequest p;
     const auto& obj = jv.as_object();
     p.data_dir = obj.at("data_dir").as_string();
     p.type = obj.at("type").as_string();
     if (obj.contains("torque_target") && !obj.at("torque_target").is_null())
-        p.torque_target = obj.at("torque_target").as_double();
+        p.torque_target = obj.at("torque_target").to_number<double>();
     if (obj.contains("opposite_angle") && !obj.at("opposite_angle").is_null())
-        p.opposite_angle = obj.at("opposite_angle").as_double();
-    p.open_viewer = obj.at("open_viewer").as_bool();
+        p.opposite_angle = obj.at("opposite_angle").to_number<double>();
+    if (obj.contains("open_viewer"))
+        p.open_viewer = obj.at("open_viewer").as_bool();
     return p;
 }
 
@@ -73,31 +78,45 @@ struct AnalysisResponse {
 
     // Set only when the daemon replied with an error envelope rather than a
     // results payload. `error` is the daemon's code (invalid_json,
-    // invalid_request, internal_error, not_found); `message` is its detail.
+    // invalid_request, internal_error, not_found); `message` is its detail;
+    // `traceback` is the daemon's Python traceback, sent with internal_error.
     std::optional<std::string> error;
     std::optional<std::string> message;
+    std::optional<std::string> traceback;
 };
 
 // The daemon has TWO response shapes, and the HTTP status does not tell them
-// apart. A results payload is {"status", "results"}; an error envelope is
-// {"error", "message"} with no status and no results. Both can arrive as 500 --
-// the daemon returns 500 with a results payload when status == "error"
-// (create_now_analysis.py: `code = 500 if result["status"] == "error"`), and 500
-// with an error envelope from its exception handlers.
+// apart: both can arrive as 500. A results payload is {"status", "results"},
+// with status ok, partial or error. An error envelope is {"status": "fault",
+// "error", "message"}. The contract is api/now_analysis.yaml in NowAnalysis.
 //
-// This used to call obj.at("status") unconditionally, so every error envelope
+// BOTH ENVELOPE SHAPES ARE ACCEPTED, PERMANENTLY. Before contract 2.0.0 the
+// envelope had no status at all and was recognised by the missing key. People
+// run their own modified daemons, so this client will meet older ones; keeping
+// the old shape costs one condition and keeps their errors readable.
+//
+// An envelope comes back with status "error", whichever shape it arrived in, so
+// callers test `status == "ok"` and then `error.has_value()` as they always
+// have; `fault` never escapes this function.
+//
+// This once called obj.at("status") unconditionally, so every error envelope
 // threw boost::json "out of range" and destroyed the diagnosis on its way past.
-// Discriminate on the body's keys, never on the status code.
+// Discriminate on the body, never on the HTTP status code.
 inline AnalysisResponse analysis_response_from_json(const boost::json::value& jv) {
     AnalysisResponse p;
     const auto& obj = jv.as_object();
 
-    if (!obj.contains("status")) {
+    const auto string_at = [&obj](const char* key) -> std::optional<std::string> {
+        if (obj.contains(key) && obj.at(key).is_string())
+            return std::string(obj.at(key).as_string());
+        return std::nullopt;
+    };
+
+    if (!obj.contains("status") || string_at("status") == "fault") {
         p.status = "error";
-        if (obj.contains("error") && obj.at("error").is_string())
-            p.error = std::string(obj.at("error").as_string());
-        if (obj.contains("message") && obj.at("message").is_string())
-            p.message = std::string(obj.at("message").as_string());
+        p.error = string_at("error");
+        p.message = string_at("message");
+        p.traceback = string_at("traceback");
         return p;
     }
 
@@ -113,14 +132,19 @@ inline AnalysisResponse analysis_response_from_json(const boost::json::value& jv
 
 struct HealthResponse {
     std::string status;
-    int pid;
+    int pid = 0;
+    // The contract version the daemon speaks. Absent from daemons older than
+    // 2.0.0, which is a thing to log, not a reason to refuse the daemon.
+    std::optional<std::string> api_version;
 };
 
 inline HealthResponse health_response_from_json(const boost::json::value& jv) {
     HealthResponse p;
     const auto& obj = jv.as_object();
     p.status = obj.at("status").as_string();
-    p.pid = static_cast<int>(obj.at("pid").as_int64());
+    p.pid = static_cast<int>(obj.at("pid").to_number<std::int64_t>());
+    if (obj.contains("api_version") && obj.at("api_version").is_string())
+        p.api_version = std::string(obj.at("api_version").as_string());
     return p;
 }
 
