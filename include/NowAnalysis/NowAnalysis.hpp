@@ -43,10 +43,34 @@ public:
         return client_.Analyze(request);
     }
 
+    // Ask the daemon to exit, and give it time to before it is killed.
+    //
+    // The wait is the point. Posting /shutdown and terminating in the next
+    // statement -- which is what this used to do -- kills the daemon before it
+    // can act on the request, because it serialises jobs and will not serve
+    // /shutdown until any analysis in flight has finished. See
+    // DaemonManager::kShutdownGraceMs.
+    //
+    // Safe to call twice: the POST to a daemon that has already gone just
+    // fails, and Stop() does nothing once the handle is closed.
     void Shutdown() {
         client_.Shutdown();
-        daemon_.Stop();
+        daemon_.Stop(DaemonManager::kShutdownGraceMs);
     }
+
+    // Shutting down is what destruction MEANS here, so a caller that simply
+    // drops this object gets the graceful path rather than a kill. Nothing may
+    // escape a destructor: an unreachable daemon is already being killed by
+    // ~DaemonManager, which is the outcome either way.
+    ~NowAnalysis() {
+        try {
+            Shutdown();
+        } catch (...) {
+        }
+    }
+
+    NowAnalysis(const NowAnalysis&) = delete;
+    NowAnalysis& operator=(const NowAnalysis&) = delete;
 
     Client& GetClient() { return client_; }
     DaemonManager& GetDaemonManager() { return daemon_; }

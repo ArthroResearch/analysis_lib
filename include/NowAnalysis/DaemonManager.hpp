@@ -47,17 +47,40 @@ public:
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
+    // How long Stop() waits for the daemon to go on its own before killing it.
+    //
+    // THE DAEMON SERIALISES JOBS. A /shutdown arriving during an analysis is not
+    // served until that analysis finishes, so terminating the moment after
+    // posting it kills the daemon mid-write and leaves a half-finished PDF or
+    // model JSON. That was survivable while /analyze took about a second; POST
+    // /model takes ~12 s, which makes the window wide enough to hit.
+    //
+    // Fifteen seconds covers a model run with room to spare. Past that the
+    // daemon is wedged rather than busy, and the kill below is the right answer
+    // -- this is a bound on "never comes back", not a performance target.
+    static constexpr DWORD kShutdownGraceMs = 15000;
+
     ~DaemonManager() {
         Stop();
     }
 
-    // Explicit stop if needed
-    void Stop() {
+    // Stop the daemon, giving it `graceMs` to exit by itself first.
+    //
+    // The default is zero because the destructor reaches here having asked the
+    // daemon nothing: waiting for an exit nobody requested would just hang the
+    // caller. NowAnalysis::Shutdown posts /shutdown and then passes the grace,
+    // which is the path that wants one.
+    void Stop(DWORD graceMs = 0) {
         if (hProcess_ != NULL) {
-            // We should ideally send /shutdown via HTTP, but as a fallback we terminate
-            // Since this is RAII, we want to be sure it's gone.
-            // A better way is to call the Client::Shutdown() first if possible.
-            TerminateProcess(hProcess_, 0);
+            // WAIT_OBJECT_0 means it exited on its own and needs no killing.
+            // Anything else -- timeout, or the wait itself failing -- falls
+            // through to the terminate, because this is RAII and the process
+            // must be gone when we return.
+            const bool exited =
+                graceMs > 0 && WaitForSingleObject(hProcess_, graceMs) == WAIT_OBJECT_0;
+            if (!exited) {
+                TerminateProcess(hProcess_, 0);
+            }
             CloseHandle(hProcess_);
             CloseHandle(hThread_);
             hProcess_ = NULL;
