@@ -32,7 +32,9 @@ public:
 
         // Create the process with a pipe to read its output and check if it's ready
         // For simplicity in this example, we'll just start it and let the user wait or check health.
-        // The README says it prints "NOW_ANALYSIS_DAEMON_READY" when ready.
+        // The daemon prints "ANALYSIS_DAEMON_READY" when it is up, but nothing
+        // here reads it: the process is started with no pipe, and readiness is
+        // established by polling /health instead. See the contract.
         
         if (!CreateProcessW(NULL, const_cast<LPWSTR>(commandLine.c_str()), NULL, NULL, FALSE, 
                             CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) {
