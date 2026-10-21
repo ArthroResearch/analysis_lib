@@ -55,10 +55,18 @@ public:
     // model JSON. That was survivable while /analyze took about a second; POST
     // /model takes ~12 s, which makes the window wide enough to hit.
     //
-    // Fifteen seconds covers a model run with room to spare. Past that the
-    // daemon is wedged rather than busy, and the kill below is the right answer
-    // -- this is a bound on "never comes back", not a performance target.
-    static constexpr DWORD kShutdownGraceMs = 15000;
+    // Sixty seconds covers a model run with room to spare. That is sized on the
+    // MEASURED time, not a guess: ~35 s for a three-test exam on the Windows
+    // development machine, 2026-10-21, against ~12 s on the Mac this was first
+    // written against. Fifteen seconds looked generous at 12 and would have
+    // expired mid-analysis at 35, terminating during exactly the write this
+    // grace exists to protect.
+    //
+    // Past this the daemon is wedged rather than busy, and the kill below is
+    // the right answer -- a bound on "never comes back", not a performance
+    // target, so it costs nothing to be generous and costs a corrupt PDF to be
+    // tight. Re-check it if the fit gets slower; the fit is most of the run.
+    static constexpr DWORD kShutdownGraceMs = 60000;
 
     ~DaemonManager() {
         Stop();
