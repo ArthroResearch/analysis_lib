@@ -88,6 +88,16 @@ public:
         return client_.Analyze(request);
     }
 
+    // Fit the exam's models and draw its exam-level reports. Once per EXAM,
+    // where Analyze is once per TEST -- the two are separate calls by design,
+    // not a stage on the way to merging them. See ModelRequest in Types.hpp.
+    //
+    // BLOCKS FOR ~30 s on a three-test exam (Windows, 2026-10-21), so this is
+    // not a call to make on a UI thread.
+    ModelResponse Model(const ModelRequest& request) {
+        return client_.Model(request);
+    }
+
     // Ask the daemon to exit, and give it time to before it is killed.
     //
     // The wait is the point. Posting /shutdown and terminating in the next
