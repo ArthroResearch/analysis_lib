@@ -20,9 +20,12 @@ public:
     // How long the daemon is given to come up and answer /health.
     //
     // Thirty seconds BOUNDS "never came up" rather than targeting a startup
-    // time. The measured figure is ~5 s; a cold filesystem or a slower machine
-    // can take several times that, and the cost of being generous is paid only
-    // when something is already broken.
+    // time. The measured figure is 7.8 s -- IN THE APPLICATION, which is the
+    // only figure that matters here: the daemon imports while the wake sequence
+    // is still finishing and competes with it for the machine, and the ~5 s seen
+    // from a quiet shell understates it by half. A cold filesystem or a slower
+    // machine can take several times that, and the cost of being generous is
+    // paid only when something is already broken.
     static constexpr std::chrono::seconds kHealthTimeout{30};
     static constexpr std::chrono::milliseconds kHealthPoll{200};
 
@@ -38,9 +41,14 @@ public:
         // This was 10 retries at 200 ms -- about 2.5 s including the launcher's
         // own initial sleep. That was enough for the single-file daemon, which
         // imported matplotlib and pandas. The ported one also imports scipy,
-        // numpy and nine analysis modules, ALL AT MODULE TOP, and measures ~5 s
-        // to ready on the Windows development machine (2026-10-21). It could
-        // not answer inside the old budget, and every start failed.
+        // numpy and nine analysis modules, ALL AT MODULE TOP, and measures
+        // 7826 ms to ready when the APPLICATION starts it on the Windows
+        // development machine (2026-10-22). It could not answer inside the old
+        // budget, and every start failed.
+        //
+        // Note what that rules out: raising the old 2.5 s to the 5 s seen by
+        // hand would ALSO have failed here. The by-hand number was never the
+        // one to size this against.
         const auto started = std::chrono::steady_clock::now();
         const auto elapsed = [started] {
             return std::chrono::steady_clock::now() - started;
